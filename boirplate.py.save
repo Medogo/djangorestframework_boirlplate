@@ -1,0 +1,178 @@
+import os
+import subprocess
+import shutil
+from pathlib import Path
+
+class DjangoRestFrameworkBoilerplateGenerator:
+    def __init__(self):
+        self.project_name = ""
+        self.base_dir = Path.cwd()
+
+    def get_project_details(self):
+        """Demander les détails du projet à l'utilisateur"""
+        self.project_name = input("Entrez le nom de votre projet Django : ").strip()
+        
+        # Vérifier que le nom du projet est valide
+        if not self.project_name.isidentifier():
+            print("Nom de projet invalide. Utilisez uniquement des caractères alphanumériques et des underscores.")
+            return False
+        return True
+
+    def create_virtual_environment(self):
+        """Créer un environnement virtuel"""
+        subprocess.run(["python3", "-m", "venv", f"{self.project_name}_env"])
+        print(f"Environnement virtuel créé : {self.project_name}_env")
+
+    def install_dependencies(self):
+        """Installer les dépendances nécessaires"""
+        pip_install_cmd = [
+            f"{self.project_name}_env/bin/pip", "install", 
+            "django", "djangorestframework", "djoser", 
+            "python-dotenv", "djangorestframework-simplejwt", 
+            "django-cors-headers", "redis", 
+            "celery", "django-celery-results",
+            "brevo"  # Pour les emails transactionnels
+        ]
+        subprocess.run(pip_install_cmd)
+        print("Dépendances installées")
+
+    def create_django_project(self):
+        """Créer le projet Django"""
+        env_path = f"{self.project_name}_env/bin/django-admin"
+        subprocess.run([env_path, "startproject", self.project_name])
+        os.chdir(self.project_name)
+        subprocess.run([f"../{self.project_name}_env/bin/python", "manage.py", "startapp", "core"])
+        print("Projet Django et app core créés")
+
+    def configure_settings(self):
+        """Configurer les paramètres du projet"""
+        settings_path = f"{self.project_name}/settings.py"
+        
+        with open(settings_path, 'r') as f:
+            settings_content = f.read()
+
+        # Configurations à ajouter
+        additional_config = f"""
+# Custom Configurations
+ALLOWED_HOSTS = ['*']  # À ajuster en production
+
+# REST Framework
+REST_FRAMEWORK = {{
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ],
+}}
+
+# JWT Settings
+SIMPLE_JWT = {{
+    'AUTH_HEADER_TYPES': ('Bearer',),
+}}
+
+# Djoser
+DJOSER = {{
+    'SEND_ACTIVATION_EMAIL': True,
+    'ACTIVATION_URL': 'activate/{{uid}}/{{token}}',
+}}
+
+# Email Configuration (Brevo)
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = 'smtp-relay.brevo.com'
+EMAIL_HOST_USER = os.getenv('BREVO_USERNAME')
+EMAIL_HOST_PASSWORD = os.getenv('BREVO_PASSWORD')
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True
+
+# Celery Configuration
+CELERY_BROKER_URL = 'redis://localhost:6379/0'
+CELERY_RESULT_BACKEND = 'redis://localhost:6379/0'
+
+# Installed Apps
+INSTALLED_APPS += [
+    'rest_framework',
+    'rest_framework_simplejwt',
+    'djoser',
+    'corsheaders',
+    'django_celery_results',
+    'core',
+]
+
+MIDDLEWARE.insert(0, 'corsheaders.middleware.CorsMiddleware')
+"""
+        
+        with open(settings_path, 'a') as f:
+            f.write(additional_config)
+        
+        print("Paramètres configurés")
+
+    def create_environment_files(self):
+        """Créer les fichiers .env pour les configurations"""
+        # .env de développement
+        with open('.env.dev', 'w') as f:
+            f.write("""
+DEBUG=True
+SECRET_KEY=your-dev-secret-key
+DATABASE_URL=sqlite:///db.sqlite3
+BREVO_USERNAME=your_dev_brevo_username
+BREVO_PASSWORD=your_dev_brevo_password
+""")
+
+        # .env de production
+        with open('.env.prod', 'w') as f:
+            f.write("""
+DEBUG=False
+SECRET_KEY=your-production-secret-key
+DATABASE_URL=postgresql://user:password@localhost/dbname
+BREVO_USERNAME=your_prod_brevo_username
+BREVO_PASSWORD=your_prod_brevo_password
+""")
+        
+        print("Fichiers d'environnement créés")
+
+    def create_celery_config(self):
+        """Créer la configuration Celery"""
+        with open(f'{self.project_name}/celery.py', 'w') as f:
+            f.write(f"""
+import os
+from celery import Celery
+
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', '{self.project_name}.settings')
+
+app = Celery('{self.project_name}')
+app.config_from_object('django.conf:settings', namespace='CELERY')
+app.autodiscover_tasks()
+""")
+
+        # Modifier __init__.py pour importer Celery
+        with open(f'{self.project_name}/__init__.py', 'a') as f:
+            f.write("""
+from .celery import app as celery_app
+
+__all__ = ('celery_app',)
+""")
+        
+        print("Configuration Celery ajoutée")
+
+    def generate_boilerplate(self):
+        """Processus principal de génération du boilerplate"""
+        if not self.get_project_details():
+            return
+
+        self.create_virtual_environment()
+        self.install_dependencies()
+        self.create_django_project()
+        self.configure_settings()
+        self.create_environment_files()
+        self.create_celery_config()
+
+        print(f"\n🎉 Boilerplate pour {self.project_name} généré avec succès!")
+        print("N'oubliez pas de :")
+        print("1. Activer votre environnement virtuel")
+        print("2. Configurer vos variables d'environnement")
+        print("3. Faire les migrations Django")
+
+def main():
+    generator = DjangoRestFrameworkBoilerplateGenerator()
+    generator.generate_boilerplate()
+
+if __name__ == "__main__":
+    main()
